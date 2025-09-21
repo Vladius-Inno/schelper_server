@@ -1,0 +1,7 @@
+---
+description: The rules for the schelper server and app
+globs:
+alwaysApply: true
+---
+
+We create the app for the medium school children and their parents which helps with homework motivation and progress.
