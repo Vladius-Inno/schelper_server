@@ -2,6 +2,10 @@
 	"folders": [
 		{
 			"path": "."
+		},
+		{
+			"name": "schelper_app",
+			"path": "../../schelper_app/schelper_app"
 		}
 	],
 	"settings": {}
