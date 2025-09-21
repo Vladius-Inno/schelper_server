@@ -1,5 +1,5 @@
 import secrets
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -7,7 +7,14 @@ from sqlalchemy import select, delete
 
 from ..db import get_db
 from ..models import User, RefreshToken
-from ..schemas import UserCreate, RegisterResponse, LoginRequest, TokenResponse, RefreshRequest
+from ..schemas import (
+    UserCreate,
+    RegisterResponse,
+    LoginRequest,
+    TokenResponse,
+    RefreshRequest,
+    StatusResponse,
+)
 from ..auth import get_password_hash, verify_password, create_access_token, ALLOWED_ROLES
 from ..config import settings
 
@@ -48,7 +55,8 @@ async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)):
 
     # Create a refresh token: opaque random string stored hashed in DB
     raw_refresh = secrets.token_urlsafe(48)
-    expires_at = datetime.now(timezone.utc) + timedelta(days=settings.refresh_token_expires_days)
+    # store naive UTC timestamps to match DB columns (DateTime without timezone)
+    expires_at = datetime.utcnow() + timedelta(days=settings.refresh_token_expires_days)
     rt = RefreshToken(
         user_id=user.id,
         token_hash=get_password_hash(raw_refresh),
@@ -74,7 +82,8 @@ async def refresh(payload: RefreshRequest, db: AsyncSession = Depends(get_db)):
     if match is None:
         raise HTTPException(status_code=401, detail="Invalid refresh token")
 
-    if match.expires_at < datetime.now(timezone.utc) or match.revoked:
+    # compare using naive UTC consistently
+    if match.expires_at < datetime.utcnow() or match.revoked:
         raise HTTPException(status_code=401, detail="Expired or revoked refresh token")
 
     # Issue a new access token
@@ -84,3 +93,18 @@ async def refresh(payload: RefreshRequest, db: AsyncSession = Depends(get_db)):
     token = create_access_token(user_id=user.id, role=user.role)
     return TokenResponse(token=token)
 
+
+@router.post("/logout", response_model=StatusResponse)
+async def logout(payload: RefreshRequest, db: AsyncSession = Depends(get_db)):
+    # Revoke a matching refresh token if present (idempotent)
+    result = await db.execute(select(RefreshToken).where(RefreshToken.revoked == False))  # noqa: E712
+    tokens = result.scalars().all()
+    target: RefreshToken | None = None
+    for t in tokens:
+        if verify_password(payload.refresh_token, t.token_hash):
+            target = t
+            break
+    if target is not None:
+        target.revoked = True
+        await db.commit()
+    return StatusResponse(status="logged_out")
