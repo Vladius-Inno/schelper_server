@@ -61,3 +61,65 @@ class LinkRequest(BaseModel):
 class StatusResponse(BaseModel):
     status: str
 
+
+# Tasks domain
+
+class SubtaskBase(BaseModel):
+    title: str
+
+
+class SubtaskCreate(SubtaskBase):
+    pass
+
+
+class SubtaskUpdate(BaseModel):
+    title: str | None = None
+    status: str | None = None  # todo | in_progress | done | checked
+    parent_reaction: str | None = None  # 👍 🌟 🎉 etc
+
+
+class SubtaskOut(BaseModel):
+    id: int
+    title: str
+    status: str
+    parent_reaction: str | None = None
+    position: int | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class TaskCreate(BaseModel):
+    subject_id: int
+    date: str | None = None  # YYYY-MM-DD; default is today
+    title: str | None = None
+    subtasks: list[SubtaskCreate] | None = None
+
+
+class TaskOut(BaseModel):
+    id: int
+    child_id: int
+    subject_id: int
+    date: str
+    title: str | None
+    status: str
+    subtasks: list[SubtaskOut] = []
+
+    class Config:
+        from_attributes = True
+
+
+# Subjects domain
+
+class SubjectCreate(BaseModel):
+    name: str
+
+
+class SubjectOut(BaseModel):
+    id: int
+    name: str
+
+    class Config:
+        from_attributes = True

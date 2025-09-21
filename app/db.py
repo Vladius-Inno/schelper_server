@@ -75,6 +75,8 @@ async def init_db() -> None:
                         "children_subjects",
                         "subjects",
                         "refresh_tokens",
+                        "tasks",
+                        "subtasks",
                     ]
                 }
 
@@ -100,6 +102,8 @@ async def inspect_db_state() -> dict:
                     "children_subjects",
                     "subjects",
                     "refresh_tokens",
+                    "tasks",
+                    "subtasks",
                 ]
             }
 
