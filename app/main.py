@@ -30,6 +30,12 @@ def create_app() -> FastAPI:
     app.include_router(subjects_router.router)
     app.include_router(tasks_router.router)
     app.include_router(health_router.router)
+    try:
+        from .routers import admin_ui as admin_ui_router  # lazy import, optional dependency
+        app.include_router(admin_ui_router.public_router)
+        app.include_router(admin_ui_router.router)
+    except Exception:
+        logging.getLogger("uvicorn.error").warning("Admin UI not available (fastui not installed)")
     return app
 
 
