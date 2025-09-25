@@ -5,6 +5,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth import get_current_user
@@ -50,7 +51,7 @@ async def list_tasks(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    q = select(Task)
+    q = select(Task).options(selectinload(Task.subtasks))
     if user.role == "child":
         q = q.where(Task.child_id == user.id)
     elif child_id is not None:
@@ -73,8 +74,14 @@ async def create_task(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    child_id = user.id if user.role == "child" else user.id if user.role == "admin" else user.id
-    # In a more advanced scenario, parent/admin could specify child_id; keeping simple now
+    child_id = payload.child_id
+    if user.role == "child":
+        child_id = user.id
+    elif child_id is None:
+        child_id = user.id
+    elif user.role != "admin":
+        # parents without specified child are not yet supported; fallback to their id
+        child_id = user.id
     date_str = payload.date or _today_str()
     task = Task(child_id=child_id, subject_id=payload.subject_id, date=date_str, title=payload.title, status="todo")
     db.add(task)
@@ -83,14 +90,15 @@ async def create_task(
         for idx, st in enumerate(payload.subtasks, start=1):
             db.add(Subtask(task_id=task.id, title=st.title, status="todo", position=idx))
     await db.commit()
-    await db.refresh(task)
+    result = await db.execute(select(Task).options(selectinload(Task.subtasks)).where(Task.id == task.id))
+    task = result.scalars().unique().one()
     task.status = _compute_task_status(task.subtasks)
     return task
 
 
 @router.get("/{task_id}", response_model=TaskOut)
 async def get_task(task_id: int, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
-    task = await db.get(Task, task_id)
+    task = await db.get(Task, task_id, options=(selectinload(Task.subtasks),))
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     await _ensure_access(user, task)
@@ -105,7 +113,7 @@ async def create_subtask(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    task = await db.get(Task, task_id)
+    task = await db.get(Task, task_id, options=(selectinload(Task.subtasks),))
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     await _ensure_access(user, task)
@@ -127,7 +135,7 @@ async def update_subtask(
     st = await db.get(Subtask, subtask_id)
     if not st:
         raise HTTPException(status_code=404, detail="Subtask not found")
-    task = await db.get(Task, st.task_id)
+    task = await db.get(Task, st.task_id, options=(selectinload(Task.subtasks),))
     await _ensure_access(user, task)
     if payload.title is not None:
         st.title = payload.title
@@ -150,7 +158,7 @@ async def start_subtask(subtask_id: int, db: AsyncSession = Depends(get_db), use
     st = await db.get(Subtask, subtask_id)
     if not st:
         raise HTTPException(status_code=404, detail="Subtask not found")
-    task = await db.get(Task, st.task_id)
+    task = await db.get(Task, st.task_id, options=(selectinload(Task.subtasks),))
     await _ensure_access(user, task)
     if st.status == "todo":
         st.status = "in_progress"
@@ -167,7 +175,7 @@ async def complete_subtask(subtask_id: int, db: AsyncSession = Depends(get_db), 
     st = await db.get(Subtask, subtask_id)
     if not st:
         raise HTTPException(status_code=404, detail="Subtask not found")
-    task = await db.get(Task, st.task_id)
+    task = await db.get(Task, st.task_id, options=(selectinload(Task.subtasks),))
     await _ensure_access(user, task)
     st.status = "done"
     await db.commit()
@@ -177,12 +185,23 @@ async def complete_subtask(subtask_id: int, db: AsyncSession = Depends(get_db), 
     return st
 
 
+@router.delete("/{task_id}", response_model=StatusResponse)
+async def delete_task(task_id: int, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+    task = await db.get(Task, task_id, options=(selectinload(Task.subtasks),))
+    if not task:
+        return StatusResponse(status="not_found")
+    await _ensure_access(user, task)
+    await db.delete(task)
+    await db.commit()
+    return StatusResponse(status="deleted")
+
+
 @router.post("/subtasks/{subtask_id}/check", response_model=SubtaskOut)
 async def check_subtask(subtask_id: int, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
     st = await db.get(Subtask, subtask_id)
     if not st:
         raise HTTPException(status_code=404, detail="Subtask not found")
-    task = await db.get(Task, st.task_id)
+    task = await db.get(Task, st.task_id, options=(selectinload(Task.subtasks),))
     await _ensure_access(user, task)
     st.status = "checked"
     await db.commit()
@@ -191,3 +210,14 @@ async def check_subtask(subtask_id: int, db: AsyncSession = Depends(get_db), use
     await db.commit()
     return st
 
+
+@router.delete("/subtasks/{subtask_id}", response_model=StatusResponse)
+async def delete_subtask(subtask_id: int, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+    st = await db.get(Subtask, subtask_id)
+    if not st:
+        return StatusResponse(status="not_found")
+    task = await db.get(Task, st.task_id, options=(selectinload(Task.subtasks),))
+    await _ensure_access(user, task)
+    await db.delete(st)
+    await db.commit()
+    return StatusResponse(status="deleted")

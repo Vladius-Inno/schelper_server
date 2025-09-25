@@ -75,14 +75,14 @@ class SubtaskCreate(SubtaskBase):
 class SubtaskUpdate(BaseModel):
     title: str | None = None
     status: str | None = None  # todo | in_progress | done | checked
-    parent_reaction: str | None = None  # 👍 🌟 🎉 etc
+    parent_reaction: str | None = None  # e.g., thumbs-up, star, party reaction
 
 
 class SubtaskOut(BaseModel):
     id: int
     title: str
     status: str
-    parent_reaction: str | None = None
+    parent_reaction: str | None = None  # e.g., thumbs-up, star, party reaction
     position: int | None = None
     created_at: datetime
     updated_at: datetime
@@ -96,6 +96,7 @@ class TaskCreate(BaseModel):
     date: str | None = None  # YYYY-MM-DD; default is today
     title: str | None = None
     subtasks: list[SubtaskCreate] | None = None
+    child_id: int | None = None
 
 
 class TaskOut(BaseModel):
@@ -106,6 +107,8 @@ class TaskOut(BaseModel):
     title: str | None
     status: str
     subtasks: list[SubtaskOut] = []
+    created_at: datetime
+    updated_at: datetime
 
     class Config:
         from_attributes = True
@@ -123,3 +126,7 @@ class SubjectOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class SubjectUpdate(BaseModel):
+    name: str

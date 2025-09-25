@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..auth import get_current_user, require_roles
 from ..db import get_db
 from ..models import User, Subject, ChildSubject
-from ..schemas import SubjectCreate, SubjectOut
+from ..schemas import SubjectCreate, SubjectOut, SubjectUpdate
 
 
 router = APIRouter(prefix="/subjects", tags=["subjects"])
@@ -45,3 +45,27 @@ async def create_subject(payload: SubjectCreate, db: AsyncSession = Depends(get_
     await db.refresh(subject)
     return subject
 
+
+@router.put("/{subject_id}", response_model=SubjectOut, dependencies=[Depends(require_roles("admin"))])
+async def update_subject(subject_id: int, payload: SubjectUpdate, db: AsyncSession = Depends(get_db)):
+    subject = await db.get(Subject, subject_id)
+    if not subject:
+        raise HTTPException(status_code=404, detail="Subject not found")
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Name required")
+    subject.name = name
+    await db.commit()
+    await db.refresh(subject)
+    return subject
+
+
+@router.delete("/{subject_id}", response_model=SubjectOut, dependencies=[Depends(require_roles("admin"))])
+async def delete_subject(subject_id: int, db: AsyncSession = Depends(get_db)):
+    subject = await db.get(Subject, subject_id)
+    if not subject:
+        raise HTTPException(status_code=404, detail="Subject not found")
+    response = SubjectOut.model_validate(subject)
+    await db.delete(subject)
+    await db.commit()
+    return response
