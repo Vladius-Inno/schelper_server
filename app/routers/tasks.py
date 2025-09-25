@@ -25,7 +25,7 @@ def _compute_task_status(subtasks: list[Subtask]) -> str:
     if not subtasks:
         return "todo"
     statuses = {s.status for s in subtasks}
-    if "checked" in statuses:
+    if statuses == {"checked"}:
         return "checked"
     if statuses.issubset({"done", "checked"}):
         return "done"

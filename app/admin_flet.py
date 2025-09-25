@@ -533,8 +533,12 @@ def create_admin_app(fastapi_app: FastAPI):
             title_field = ft.TextField(label="Subtask title", width=260)
 
             def close_dialog(*_):
-                page.dialog.open = False
+                dialog.open = False
                 page.update()
+                try:
+                    page.overlay.remove(dialog)
+                except ValueError:
+                    pass
 
             async def submit():
                 title = title_field.value.strip()
@@ -559,7 +563,8 @@ def create_admin_app(fastapi_app: FastAPI):
                 ],
                 actions_alignment=ft.MainAxisAlignment.END,
             )
-            page.dialog = dialog
+            if dialog not in page.overlay:
+                page.overlay.append(dialog)
             dialog.open = True
             page.update()
 
