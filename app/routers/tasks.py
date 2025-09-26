@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..auth import get_current_user
 from ..db import get_db
 from ..models import User, Task, Subtask, TASK_STATUS_VALUES
-from ..schemas import TaskCreate, TaskOut, SubtaskCreate, SubtaskUpdate, SubtaskOut, StatusResponse
+from ..schemas import TaskCreate, TaskUpdate, TaskOut, SubtaskCreate, SubtaskUpdate, SubtaskOut, StatusResponse
 
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
@@ -103,6 +103,29 @@ async def get_task(task_id: int, db: AsyncSession = Depends(get_db), user: User 
         raise HTTPException(status_code=404, detail="Task not found")
     await _ensure_access(user, task)
     task.status = _compute_task_status(task.subtasks)
+    return task
+
+@router.patch("/{task_id}", response_model=TaskOut)
+async def update_task(
+    task_id: int,
+    payload: TaskUpdate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    task = await db.get(Task, task_id, options=(selectinload(Task.subtasks),))
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    await _ensure_access(user, task)
+    if payload.title is not None:
+        task.title = payload.title
+    if payload.status is not None:
+        if payload.status not in TASK_STATUS_VALUES:
+            raise HTTPException(status_code=400, detail="Invalid status")
+        task.status = payload.status
+    await db.commit()
+    await db.refresh(task)
+    if task.subtasks:
+        task.status = _compute_task_status(task.subtasks)
     return task
 
 

@@ -91,6 +91,11 @@ class SubtaskOut(BaseModel):
         from_attributes = True
 
 
+class TaskUpdate(BaseModel):
+    title: str | None = None
+    status: str | None = None
+
+
 class TaskCreate(BaseModel):
     subject_id: int
     date: str | None = None  # YYYY-MM-DD; default is today
