@@ -21,6 +21,14 @@ def _today_str() -> str:
     return datetime.utcnow().strftime("%Y-%m-%d")
 
 
+def _parse_iso_date(value: str, field: str) -> datetime:
+    """Validate ISO date (YYYY-MM-DD) and return datetime for comparisons."""
+    try:
+        return datetime.strptime(value, "%Y-%m-%d")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid {}, expected YYYY-MM-DD".format(field)) from exc
+
+
 def _compute_task_status(subtasks: list[Subtask]) -> str:
     if not subtasks:
         return "todo"
@@ -48,6 +56,8 @@ async def _ensure_access(user: User, task: Task):
 async def list_tasks(
     subject_id: Optional[int] = Query(default=None),
     child_id: Optional[int] = Query(default=None),
+    start_date: Optional[str] = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    end_date: Optional[str] = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -59,6 +69,17 @@ async def list_tasks(
 
     if subject_id is not None:
         q = q.where(Task.subject_id == subject_id)
+
+    start_dt = None
+    end_dt = None
+    if start_date is not None:
+        start_dt = _parse_iso_date(start_date, "start_date")
+        q = q.where(Task.date >= start_date)
+    if end_date is not None:
+        end_dt = _parse_iso_date(end_date, "end_date")
+        q = q.where(Task.date <= end_date)
+    if start_dt and end_dt and start_dt > end_dt:
+        raise HTTPException(status_code=400, detail="start_date must be before or equal to end_date")
 
     result = await db.execute(q.order_by(Task.date.desc(), Task.id.desc()))
     tasks = list(result.scalars().unique().all())
