@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth import get_current_user, require_roles
 from ..db import get_db
-from ..models import User, Subject, ChildSubject
+from ..models import User, Subject, ChildSubject, Task
 from ..schemas import SubjectCreate, SubjectOut, SubjectUpdate
 
 
@@ -19,19 +19,27 @@ async def list_subjects(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    if user.role == "child":
-        # subjects linked to the child
-        subq = select(ChildSubject.subject_id).where(ChildSubject.child_id == user.id).subquery()
-        result = await db.execute(select(Subject).where(Subject.id.in_(select(subq.c.subject_id))))
-        return list(result.scalars().all())
-    # parent/admin: if child_id provided, filter by it; otherwise, list all
-    if child_id is not None:
-        subq = select(ChildSubject.subject_id).where(ChildSubject.child_id == child_id).subquery()
-        result = await db.execute(select(Subject).where(Subject.id.in_(select(subq.c.subject_id))))
-        return list(result.scalars().all())
-    result = await db.execute(select(Subject).order_by(Subject.name.asc()))
-    return list(result.scalars().all())
+    async def _subjects_for_child(target_child_id: int):
+        subject_ids = set()
+        result = await db.execute(select(ChildSubject.subject_id).where(ChildSubject.child_id == target_child_id))
+        subject_ids.update(result.scalars().all())
+        result = await db.execute(select(Task.subject_id).where(Task.child_id == target_child_id))
+        subject_ids.update(result.scalars().all())
+        if not subject_ids:
+            return []
+        result = await db.execute(
+            select(Subject)
+            .where(Subject.id.in_(subject_ids))
+            .order_by(Subject.name.asc())
+        )
+        return list(result.scalars().unique().all())
 
+    if user.role == "child":
+        return await _subjects_for_child(user.id)
+    if child_id is not None:
+        return await _subjects_for_child(child_id)
+    result = await db.execute(select(Subject).order_by(Subject.name.asc()))
+    return list(result.scalars().unique().all())
 
 @router.post("/", response_model=SubjectOut, dependencies=[Depends(require_roles("admin"))])
 async def create_subject(payload: SubjectCreate, db: AsyncSession = Depends(get_db)):
@@ -69,3 +77,4 @@ async def delete_subject(subject_id: int, db: AsyncSession = Depends(get_db)):
     await db.delete(subject)
     await db.commit()
     return response
+

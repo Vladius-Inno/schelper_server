@@ -64,7 +64,8 @@ async def list_tasks(
     tasks = list(result.scalars().unique().all())
     for t in tasks:
         # compute status from subtasks to ensure consistency
-        t.status = _compute_task_status(t.subtasks)
+        if t.subtasks:
+            t.status = _compute_task_status(t.subtasks)
     return tasks
 
 
@@ -92,7 +93,8 @@ async def create_task(
     await db.commit()
     result = await db.execute(select(Task).options(selectinload(Task.subtasks)).where(Task.id == task.id))
     task = result.scalars().unique().one()
-    task.status = _compute_task_status(task.subtasks)
+    if task.subtasks:
+        task.status = _compute_task_status(task.subtasks)
     return task
 
 
@@ -102,7 +104,8 @@ async def get_task(task_id: int, db: AsyncSession = Depends(get_db), user: User 
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     await _ensure_access(user, task)
-    task.status = _compute_task_status(task.subtasks)
+    if task.subtasks:
+        task.status = _compute_task_status(task.subtasks)
     return task
 
 @router.patch("/{task_id}", response_model=TaskOut)
