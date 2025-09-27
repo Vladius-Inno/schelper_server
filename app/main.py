@@ -1,6 +1,6 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
-from fastapi.staticfiles import StaticFiles
+# from fastapi.staticfiles import StaticFiles
 
 import logging
 
@@ -28,7 +28,7 @@ async def lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     app = FastAPI(title="Schelper Server - Auth", lifespan=lifespan)
-    app.mount("/static", StaticFiles(directory="static"), name="static")
+    # app.mount("/static", StaticFiles(directory="static"), name="static")
 
     app.include_router(auth_router.router)
     app.include_router(users_router.router)
