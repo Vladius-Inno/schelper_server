@@ -7,6 +7,7 @@ from jose import jwt, JWTError
 from passlib.context import CryptContext
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+import hashlib, secrets
 
 from .config import settings
 from .db import get_db
@@ -26,6 +27,16 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 def get_password_hash(password: str) -> str:
     return pwd_context.hash(password)
 
+def generate_refresh_token() -> str:
+    # выдаём клиенту эту строку
+    return secrets.token_urlsafe(64)
+
+def get_refresh_token_hash(token: str) -> str:
+    # сохраняем в БД только хэш
+    return hashlib.sha256(token.encode()).hexdigest()
+
+def verify_refresh_token(token: str, token_hash: str) -> bool:
+    return get_refresh_token_hash(token) == token_hash
 
 def create_access_token(*, user_id: int, role: str, expires_minutes: int | None = None) -> str:
     to_encode = {"sub": str(user_id), "role": role}
