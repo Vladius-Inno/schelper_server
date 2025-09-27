@@ -19,7 +19,7 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_KEY }}
           script: |
-            cd ~/schelper_server
+            cd ~/schelper_server/schelper_server
             echo ">>> Pulling latest code"
             git fetch --all
             git reset --hard origin/main
