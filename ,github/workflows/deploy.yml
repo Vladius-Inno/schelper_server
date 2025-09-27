@@ -1,0 +1,38 @@
+name: Deploy to Server
+
+on:
+  workflow_run:
+    workflows: ["Tests"]
+    types: [completed]
+
+jobs:
+  deploy:
+    # Only deploy when the Tests workflow succeeded on main branch
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Copy files to server via SSH
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          script: |
+            cd ~/schelper_server
+            echo ">>> Pulling latest code"
+            git fetch --all
+            git reset --hard origin/main
+
+            echo ">>> Rebuilding Docker images (API + Webapp)"
+            docker compose -f docker-compose.yml -f docker-compose.webapp.yml build --no-cache
+
+            echo ">>> Restarting containers (API + Webapp)"
+            docker compose -f docker-compose.yml -f docker-compose.webapp.yml down
+            docker compose -f docker-compose.yml -f docker-compose.webapp.yml up -d
+
+            echo ">>> Deployment finished!"
+
