@@ -4,6 +4,9 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
+import hashlib, secrets
+
+from ..auth import generate_refresh_token, get_refresh_token_hash, verify_refresh_token
 
 from ..db import get_db
 from ..models import User, RefreshToken
@@ -54,12 +57,15 @@ async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)):
     access_token = create_access_token(user_id=user.id, role=user.role)
 
     # Create a refresh token: opaque random string stored hashed in DB
-    raw_refresh = secrets.token_urlsafe(48)
+    # raw_refresh = secrets.token_urlsafe(48)
+    raw_refresh = generate_refresh_token()
     # store naive UTC timestamps to match DB columns (DateTime without timezone)
     expires_at = datetime.utcnow() + timedelta(days=settings.refresh_token_expires_days)
+    
     rt = RefreshToken(
         user_id=user.id,
-        token_hash=get_password_hash(raw_refresh),
+        # token_hash=get_password_hash(raw_refresh),
+        token_hash=get_refresh_token_hash(raw_refresh),  # SHA256 вместо bcrypt
         expires_at=expires_at,
     )
     db.add(rt)
@@ -76,7 +82,7 @@ async def refresh(payload: RefreshRequest, db: AsyncSession = Depends(get_db)):
     # Find a matching token by verifying hash
     match: RefreshToken | None = None
     for t in tokens:
-        if verify_password(payload.refresh_token, t.token_hash):
+        if verify_refresh_token(payload.refresh_token, t.token_hash):
             match = t
             break
     if match is None:
@@ -101,7 +107,7 @@ async def logout(payload: RefreshRequest, db: AsyncSession = Depends(get_db)):
     tokens = result.scalars().all()
     target: RefreshToken | None = None
     for t in tokens:
-        if verify_password(payload.refresh_token, t.token_hash):
+        if verify_refresh_token(payload.refresh_token, t.token_hash):
             target = t
             break
     if target is not None:
