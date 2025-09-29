@@ -66,6 +66,7 @@ class StatusResponse(BaseModel):
 
 class SubtaskBase(BaseModel):
     title: str
+    type: str | None = None
 
 
 class SubtaskCreate(SubtaskBase):
@@ -82,6 +83,7 @@ class SubtaskOut(BaseModel):
     id: int
     title: str
     status: str
+    type: str | None = None
     parent_reaction: str | None = None  # e.g., thumbs-up, star, party reaction
     position: int | None = None
     created_at: datetime
@@ -138,8 +140,6 @@ class SubjectUpdate(BaseModel):
 
 
 class HomeworkImportRequest(BaseModel):
-    subject_id: int
     child_id: Optional[int] = None
-    date: Optional[str] = None
     text: Optional[str] = None
     file_id: Optional[str] = None  # если загружаем картинку/пдф

@@ -78,3 +78,17 @@ async def delete_subject(subject_id: int, db: AsyncSession = Depends(get_db)):
     await db.commit()
     return response
 
+
+async def get_subject_id_by_name(name: str, db: AsyncSession) -> int:
+    """Возвращает ID предмета по его названию."""
+    normalized_name = name.strip().lower()
+
+    result = await db.execute(
+        select(Subject).where(Subject.name.ilike(normalized_name))
+    )
+    subject = result.scalar_one_or_none()
+
+    if not subject:
+        raise HTTPException(status_code=404, detail=f"Subject '{name}' not found")
+
+    return subject.id

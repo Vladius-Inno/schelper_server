@@ -96,6 +96,7 @@ async def create_task(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    # --- 1. Child id / defaults  ---
     child_id = payload.child_id
     if user.role == "child":
         child_id = user.id
@@ -105,15 +106,38 @@ async def create_task(
         # parents without specified child are not yet supported; fallback to their id
         child_id = user.id
     date_str = payload.date or _today_str()
-    task = Task(child_id=child_id, subject_id=payload.subject_id, date=date_str, title=payload.title, status="todo")
+    # --- 2. Создаём Task и добавляем в сессию ---
+    task = Task(
+        child_id=child_id, 
+        subject_id=payload.subject_id, 
+        date=date_str, 
+        title=payload.title, 
+        status="todo"
+    )
     db.add(task)
-    await db.flush()  # to get task.id
+    
+    # await db.flush()  # to get task.id
+    # --- 3. Привязываем Subtask через relationship (не через task_id) ---
     if payload.subtasks:
         for idx, st in enumerate(payload.subtasks, start=1):
-            db.add(Subtask(task_id=task.id, title=st.title, status="todo", position=idx))
+            task.subtasks.append(
+                Subtask(
+                    # task_id=task.id, 
+                    title=st.title, 
+                    type=st.type,
+                    status="todo", 
+                    position=idx
+                )
+            )
+    # --- 4. Коммитим (SQLAlchemy корректно поставит task -> subtasks порядок вставки) ---
     await db.commit()
-    result = await db.execute(select(Task).options(selectinload(Task.subtasks)).where(Task.id == task.id))
+    # await db.refresh(task, attribute_names=["subtasks"])
+    # --- 5. Подтягиваем Task с Subtasks через selectinload и возвращаем ---
+    result = await db.execute(
+        select(Task).options(selectinload(Task.subtasks)).where(Task.id == task.id)
+    )
     task = result.scalars().unique().one()
+    
     if task.subtasks:
         task.status = _compute_task_status(task.subtasks)
     return task

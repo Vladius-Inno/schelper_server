@@ -108,6 +108,7 @@ class Subtask(Base):
     task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id", ondelete="CASCADE"), index=True, nullable=False)
     title: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="todo")
+    type: Mapped[str | None] = mapped_column(String(32), nullable=True)
     parent_reaction: Mapped[str | None] = mapped_column(String(8), nullable=True)
     position: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
