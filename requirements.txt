@@ -13,3 +13,4 @@ python-dotenv==1.0.1
 flet==0.28.3
 flet_web
 bcrypt==4.1.2
+openai

@@ -135,3 +135,11 @@ class SubjectOut(BaseModel):
 
 class SubjectUpdate(BaseModel):
     name: str
+
+
+class HomeworkImportRequest(BaseModel):
+    subject_id: int
+    child_id: Optional[int] = None
+    date: Optional[str] = None
+    text: Optional[str] = None
+    file_id: Optional[str] = None  # если загружаем картинку/пдф
