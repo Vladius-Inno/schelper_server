@@ -16,7 +16,7 @@ from app.service.agent_parser import agent_parse_homework
 from ..auth import get_current_user
 from ..db import get_db
 from ..models import User, Task, Subtask, TASK_STATUS_VALUES
-from ..schemas import HomeworkImportRequest, TaskCreate, TaskUpdate, TaskOut, SubtaskCreate, SubtaskUpdate, SubtaskOut, StatusResponse
+from ..schemas import HomeworkImportRequest, TaskCreate, TaskResponse, TaskUpdate, TaskOut, SubtaskCreate, SubtaskUpdate, SubtaskOut, StatusResponse
 from app.routers.subjects import get_subject_id_by_name
 
 
@@ -102,7 +102,7 @@ def detect_category(text: str, threshold: int = 80) -> str:
     return "other"
 
 
-@router.post("/homework", response_model=list[TaskOut])
+@router.post("/homework", response_model=list[TaskResponse])
 async def import_homework(
     payload: HomeworkImportRequest,
     db: AsyncSession = Depends(get_db),
@@ -115,8 +115,6 @@ async def import_homework(
     # 1. получить текст
     if payload.text:
         raw_text = payload.text
-    # elif payload.file_id:
-    #     raw_text = await extract_text_from_file(payload.file_id)
     else:
         raise HTTPException(status_code=400, detail="No homework content provided")
 
@@ -124,32 +122,19 @@ async def import_homework(
     ai_results = await agent_parse_homework(raw_text)
     
     # 3. собрать несколько TaskCreate и сохранить
-    # tasks = []
     results = []
     for result in ai_results["subjects"]:
         if not has_homework(result):
             continue  # пропускаем предмет без ДЗ
-        # здесь нужен метод для нахождения subject_id по имени
-        subject_id = await get_subject_id_by_name(normalize_subject(result["name"]), db)
+        subject_id = await get_subject_id_by_name(
+            normalize_subject(result["name"]), db
+        )
 
         date_str = result.get("date") or _tomorrow_str()
         description = trim_description(result["task"]["description"])
         task_hash = make_task_hash(subject_id, date_str, description)
 
-        # # --- Проверка 1: дубликат (идентичное ДЗ) ---
-        # duplicate = await get_task_by_hash(db, payload.child_id, task_hash)
-        # if duplicate:
-        #     results.append({
-        #         "status": "duplicate",
-        #         "task": duplicate
-        #     })
-        #     continue
-
-        # # --- Проверка 2: ДЗ по дате и предмету ---
-        # existing_task = await get_task_by_subject_date(
-        #     db, payload.child_id, subject_id, date_str
-        # )
-
+        # Собираем подзадачи
         subtasks = [
             SubtaskCreate(
                 title=sub["detail"],
@@ -157,29 +142,8 @@ async def import_homework(
             )
             for sub in result["task"].get("subtasks", [])
         ]
-
-        # subs = result["task"].get("subtasks", [])
-        # print(subs)
-
-        # if existing_task:
-        #     # добавляем только новые подзадачи
-        #     existing_titles = {st.title for st in existing_task.subtasks}
-        #     new_subs = [
-        #         Subtask(title=st.title, type=st.type, status="todo", position=len(existing_task.subtasks) + i + 1)
-        #         for i, st in enumerate(subtasks)
-        #         if st.title not in existing_titles
-        #     ]
-        #     existing_task.subtasks.extend(new_subs)
-
-        #     await db.commit()
-        #     await db.refresh(existing_task, attribute_names=["subtasks"])
-
-        #     results.append({
-        #         "status": "updated",
-        #         "task": existing_task
-        #     })
-        #     continue
-
+        
+        # Создаём задание (проверка на дубликат делается внутри create_task)
         task_create = TaskCreate(
             child_id=payload.child_id,
             subject_id=subject_id,
@@ -190,7 +154,6 @@ async def import_homework(
         )
 
         result_staus = await create_task(task_create, db, user)
-        # tasks.append(task)
         results.append(result_staus)
 
     return results

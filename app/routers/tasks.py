@@ -6,6 +6,7 @@ import hashlib
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -126,98 +127,120 @@ async def create_task(
     elif user.role != "admin":
         # parents without specified child are not yet supported; fallback to their id
         child_id = user.id
+
     date_str = payload.date or _today_str()
-    # --- 2. Создаём Task и добавляем в сессию ---
-    task_hash = make_task_hash(payload.subject_id, date_str, payload.title)
-    # Проверка на идентичный ДЗ
-    duplicate = await get_task_by_hash(db, child_id, task_hash)
-    if duplicate:
-        # Подгрузим subtasks, чтобы избежать MissingGreenlet
-        result = await db.execute(
-            select(Task).options(selectinload(Task.subtasks)).where(Task.id == duplicate.id)
+
+    # --- 2. Ищем задачу с точно таким subject+date+title ---
+    stmt = (
+        select(Task)
+        .options(selectinload(Task.subtasks))
+        .where(
+            Task.child_id == child_id,
+            Task.subject_id == payload.subject_id,
+            Task.date == date_str,
+            Task.title == payload.title,
         )
-        duplicate = result.scalars().unique().one()
-        return {
-            "status": "duplicate", 
-            "task": duplicate, 
-            # "subject_id": payload.subject_id
-        }
-    # Проверка на ДЗ по дате и предмету
-    existing_task = await get_task_by_subject_date(db, child_id, payload.subject_id, date_str)
+    )
+    res = await db.execute(stmt)
+    existing_task = res.scalars().unique().first()
 
     if existing_task:
-        # Добавляем подзадачи, если они не дублируют существующие
-        if payload.subtasks:
-            existing_titles = {st.title for st in existing_task.subtasks}
-            for idx, st in enumerate(
-                payload.subtasks, start=len(existing_task.subtasks) + 1
-            ):
-                if st.title not in existing_titles:
-                    existing_task.subtasks.append(
-                        Subtask(
-                            title=st.title,
-                            type=getattr(st, "type", None),  # на случай если нет type
-                            status="todo",
-                            position=idx,
-                        )
-                    )
+        # Сравним существующие и входящие подзадачи — добавим только новые
+        existing_titles = {s.title for s in existing_task.subtasks}
+        incoming_subtasks = payload.subtasks or []
+        # сохраним порядок из payload, но добавим только те, которых нет
+        new_titles = [s.title for s in incoming_subtasks if s.title not in existing_titles]
+
+        if not new_titles:
+            # Полный дубль: ничего не изменилось
+            # existing_task уже загружен с selectinload
+            return {"status": "duplicate", "task": existing_task}
+
+        # Добавляем новые подзадачи, продолжая позиции
+        max_pos = max((s.position or 0) for s in existing_task.subtasks) if existing_task.subtasks else 0
+        pos = max_pos
+        for title in new_titles:
+            pos += 1
+            # Найдём объект из payload, чтобы взять type (если есть)
+            st_obj = next((s for s in incoming_subtasks if s.title == title), None)
+            st_type = getattr(st_obj, "type", None) if st_obj else None
+            existing_task.subtasks.append(
+                Subtask(
+                    title=title,
+                    type=st_type,
+                    status="todo",
+                    position=pos,
+                )
+            )
+
         await db.commit()
-        # Подгружаем subtasks
+
+        # Подгружаем заново с сабтасками, пересчитываем статус и сохраняем
         result = await db.execute(
             select(Task).options(selectinload(Task.subtasks)).where(Task.id == existing_task.id)
         )
         existing_task = result.scalars().unique().one()
-
-        # await db.refresh(existing_task, attribute_names=["subtasks"])
         existing_task.status = _compute_task_status(existing_task.subtasks)
-        return {
-            "status": "updated",
-            "task": existing_task,
-        }
-    # Создаём новое задание
+        db.add(existing_task)
+        await db.commit()
+        # refresh not strictly necessary, but безопасно
+        await db.refresh(existing_task, attribute_names=["subtasks"])
+
+        return {"status": "updated", "task": existing_task}
+
+    # --- 3. Нет задачи с таким subject+date+title → создаём новую ---
+    task_hash = make_task_hash(payload.subject_id, date_str, payload.title)
     task = Task(
-        child_id=child_id, 
-        subject_id=payload.subject_id, 
-        date=date_str, 
+        child_id=child_id,
+        subject_id=payload.subject_id,
+        date=date_str,
         title=payload.title,
         hash=task_hash,
-        status="todo"
+        status="todo",
     )
     db.add(task)
-    
-    # await db.flush()  # to get task.id
-    # --- 3. Привязываем Subtask через relationship (не через task_id) ---
+
     if payload.subtasks:
         for idx, st in enumerate(payload.subtasks, start=1):
             task.subtasks.append(
                 Subtask(
-                    # task_id=task.id, 
-                    title=st.title, 
+                    title=st.title,
                     type=st.type,
-                    status="todo", 
-                    position=idx
+                    status="todo",
+                    position=idx,
                 )
             )
-    # --- 4. Коммитим (SQLAlchemy корректно поставит task -> subtasks порядок вставки) ---
-    await db.commit()
-    # await db.refresh(task, attribute_names=["subtasks"])
-    # --- 5. Подтягиваем Task с Subtasks через selectinload и возвращаем ---
+
+    # Попытка сохранить; на случай гонки — обработаем IntegrityError по уникальному индексу hash
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        # Конкурентно создалась аналогичная запись — считаем дубликатом
+        dup = await get_task_by_hash(db, child_id, task_hash)
+        if dup:
+            result = await db.execute(
+                select(Task).options(selectinload(Task.subtasks)).where(Task.id == dup.id)
+            )
+            dup = result.scalars().unique().one()
+            return {"status": "duplicate", "task": dup}
+        # если тут нет dup — просто пробросим ошибку
+        raise
+
+    # Подгружаем задачу вместе с подзадачами
     result = await db.execute(
         select(Task).options(selectinload(Task.subtasks)).where(Task.id == task.id)
     )
     task = result.scalars().unique().one()
 
+    # Пересчёт статуса и сохранение
     if task.subtasks:
         task.status = _compute_task_status(task.subtasks)
+        db.add(task)
         await db.commit()
         await db.refresh(task, attribute_names=["subtasks"])
-    
-    return {
-        "status": "created",
-        "task_id": task.id,
-        "subject_id": payload.subject_id,
-        "task": task,
-    }
+
+    return {"status": "created", "task": task}
 
 
 @router.get("/{task_id}", response_model=TaskOut)
