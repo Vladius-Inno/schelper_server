@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import List, Optional
+import hashlib
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
@@ -11,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..auth import get_current_user
 from ..db import get_db
 from ..models import User, Task, Subtask, TASK_STATUS_VALUES
-from ..schemas import TaskCreate, TaskUpdate, TaskOut, SubtaskCreate, SubtaskUpdate, SubtaskOut, StatusResponse
+from ..schemas import TaskCreate, TaskResponse, TaskUpdate, TaskOut, SubtaskCreate, SubtaskUpdate, SubtaskOut, StatusResponse
 
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
@@ -51,6 +52,26 @@ async def _ensure_access(user: User, task: Task):
         # For now, allow parents access to any task; in real app we should check ChildParent link
         return
 
+def make_task_hash(subject_id: int, date, title: str) -> str:
+    key = f"{subject_id}:{date}:{title}".encode("utf-8")
+    return hashlib.sha256(key).hexdigest()
+
+async def get_task_by_hash(session, child_id: int, hash_value: str):
+    return await session.scalar(
+        select(Task).where(
+            Task.child_id == child_id,
+            Task.hash == hash_value
+        )
+    )
+
+async def get_task_by_subject_date(session, child_id: int, subject_id: int, date):
+    return await session.scalar(
+       select(Task).where(
+            Task.child_id == child_id,
+            Task.subject_id == subject_id,
+            Task.date == date,
+        )
+    )
 
 @router.get("/", response_model=List[TaskOut])
 async def list_tasks(
@@ -90,7 +111,7 @@ async def list_tasks(
     return tasks
 
 
-@router.post("/", response_model=TaskOut)
+@router.post("/", response_model=TaskResponse)
 async def create_task(
     payload: TaskCreate,
     db: AsyncSession = Depends(get_db),
@@ -107,11 +128,59 @@ async def create_task(
         child_id = user.id
     date_str = payload.date or _today_str()
     # --- 2. Создаём Task и добавляем в сессию ---
+    task_hash = make_task_hash(payload.subject_id, date_str, payload.title)
+    # Проверка на идентичный ДЗ
+    duplicate = await get_task_by_hash(db, child_id, task_hash)
+    if duplicate:
+        # Подгрузим subtasks, чтобы избежать MissingGreenlet
+        result = await db.execute(
+            select(Task).options(selectinload(Task.subtasks)).where(Task.id == duplicate.id)
+        )
+        duplicate = result.scalars().unique().one()
+        return {
+            "status": "duplicate", 
+            "task": duplicate, 
+            # "subject_id": payload.subject_id
+        }
+    # Проверка на ДЗ по дате и предмету
+    existing_task = await get_task_by_subject_date(db, child_id, payload.subject_id, date_str)
+
+    if existing_task:
+        # Добавляем подзадачи, если они не дублируют существующие
+        if payload.subtasks:
+            existing_titles = {st.title for st in existing_task.subtasks}
+            for idx, st in enumerate(
+                payload.subtasks, start=len(existing_task.subtasks) + 1
+            ):
+                if st.title not in existing_titles:
+                    existing_task.subtasks.append(
+                        Subtask(
+                            title=st.title,
+                            type=getattr(st, "type", None),  # на случай если нет type
+                            status="todo",
+                            position=idx,
+                        )
+                    )
+        await db.commit()
+        # Подгружаем subtasks
+        result = await db.execute(
+            select(Task).options(selectinload(Task.subtasks)).where(Task.id == existing_task.id)
+        )
+        existing_task = result.scalars().unique().one()
+
+        # await db.refresh(existing_task, attribute_names=["subtasks"])
+        existing_task.status = _compute_task_status(existing_task.subtasks)
+        return {
+            "status": "updated",
+            "task": existing_task,
+        }
+    # Создаём новое задание
     task = Task(
         child_id=child_id, 
         subject_id=payload.subject_id, 
         date=date_str, 
-        title=payload.title, 
+        title=payload.title,
+        hash=task_hash,
         status="todo"
     )
     db.add(task)
@@ -137,10 +206,18 @@ async def create_task(
         select(Task).options(selectinload(Task.subtasks)).where(Task.id == task.id)
     )
     task = result.scalars().unique().one()
-    
+
     if task.subtasks:
         task.status = _compute_task_status(task.subtasks)
-    return task
+        await db.commit()
+        await db.refresh(task, attribute_names=["subtasks"])
+    
+    return {
+        "status": "created",
+        "task_id": task.id,
+        "subject_id": payload.subject_id,
+        "task": task,
+    }
 
 
 @router.get("/{task_id}", response_model=TaskOut)

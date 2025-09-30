@@ -92,6 +92,7 @@ class Task(Base):
     # Store date as ISO date string (YYYY-MM-DD) to keep it simple and comparable across DBs
     date: Mapped[str] = mapped_column(String(10), nullable=False)
     title: Mapped[str | None] = mapped_column(Text, nullable=True)
+    hash: Mapped[str] = mapped_column(Text, nullable=False, index=True)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="todo")
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)

@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.routers.tasks import create_task
+from app.routers.tasks import create_task, make_task_hash, get_task_by_hash, get_task_by_subject_date
 from app.service.agent_parser import agent_parse_homework
 
 from ..auth import get_current_user
@@ -39,10 +39,8 @@ def has_homework(subject: dict) -> bool:
     
     return not any(phrase in text for phrase in phrases)
 
-
 def trim_description(text: str) -> str:
     return text if len(text) <= 50 else text[:50].rstrip() + "..."
-
 
 # ------------------ SUBJECTS ------------------
 SUBJECTS = {
@@ -54,7 +52,6 @@ SUBJECTS = {
     "ИЗО": ["изоша", "изобразительное искусство"],
     "биология": ["био", "биол"],
 }
-
 
 def normalize_subject(name: str, threshold: int = 70) -> str:
     """Возвращает каноническое название предмета"""
@@ -127,29 +124,73 @@ async def import_homework(
     ai_results = await agent_parse_homework(raw_text)
     
     # 3. собрать несколько TaskCreate и сохранить
-    tasks = []
+    # tasks = []
+    results = []
     for result in ai_results["subjects"]:
         if not has_homework(result):
             continue  # пропускаем предмет без ДЗ
         # здесь нужен метод для нахождения subject_id по имени
         subject_id = await get_subject_id_by_name(normalize_subject(result["name"]), db)
 
-        subs = result["task"].get("subtasks", [])
-        print(subs)
+        date_str = result.get("date") or _tomorrow_str()
+        description = trim_description(result["task"]["description"])
+        task_hash = make_task_hash(subject_id, date_str, description)
+
+        # # --- Проверка 1: дубликат (идентичное ДЗ) ---
+        # duplicate = await get_task_by_hash(db, payload.child_id, task_hash)
+        # if duplicate:
+        #     results.append({
+        #         "status": "duplicate",
+        #         "task": duplicate
+        #     })
+        #     continue
+
+        # # --- Проверка 2: ДЗ по дате и предмету ---
+        # existing_task = await get_task_by_subject_date(
+        #     db, payload.child_id, subject_id, date_str
+        # )
+
+        subtasks = [
+            SubtaskCreate(
+                title=sub["detail"],
+                type=detect_category(sub["type"]),
+            )
+            for sub in result["task"].get("subtasks", [])
+        ]
+
+        # subs = result["task"].get("subtasks", [])
+        # print(subs)
+
+        # if existing_task:
+        #     # добавляем только новые подзадачи
+        #     existing_titles = {st.title for st in existing_task.subtasks}
+        #     new_subs = [
+        #         Subtask(title=st.title, type=st.type, status="todo", position=len(existing_task.subtasks) + i + 1)
+        #         for i, st in enumerate(subtasks)
+        #         if st.title not in existing_titles
+        #     ]
+        #     existing_task.subtasks.extend(new_subs)
+
+        #     await db.commit()
+        #     await db.refresh(existing_task, attribute_names=["subtasks"])
+
+        #     results.append({
+        #         "status": "updated",
+        #         "task": existing_task
+        #     })
+        #     continue
 
         task_create = TaskCreate(
             child_id=payload.child_id,
             subject_id=subject_id,
-            date=result.get("date") or _tomorrow_str(),
-            title=trim_description(result["task"]["description"]),
-            subtasks=[
-                SubtaskCreate(
-                    title=sub["detail"],
-                    type=detect_category(sub["type"])
-                    )
-                for sub in subs]
+            date=date_str,
+            title=description,
+            hash=task_hash,
+            subtasks=subtasks
         )
-        task = await create_task(task_create, db, user)
-        tasks.append(task)
 
-    return tasks
+        result_staus = await create_task(task_create, db, user)
+        # tasks.append(task)
+        results.append(result_staus)
+
+    return results
