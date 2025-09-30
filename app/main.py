@@ -11,6 +11,7 @@ from .routers import tasks as tasks_router
 from .routers import subjects as subjects_router
 from .routers import health as health_router
 from .admin_flet import create_admin_app
+from .routers import import_homework as import_homework_router
 
 
 @asynccontextmanager
@@ -35,6 +36,7 @@ def create_app() -> FastAPI:
     app.include_router(subjects_router.router)
     app.include_router(tasks_router.router)
     app.include_router(health_router.router)
+    app.include_router(import_homework_router.router)
     # Mount Flet-based admin interface
     app.mount("/admin", create_admin_app(app))
 

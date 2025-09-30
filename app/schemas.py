@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Literal
 
 from pydantic import BaseModel, EmailStr, Field
 
@@ -66,6 +66,7 @@ class StatusResponse(BaseModel):
 
 class SubtaskBase(BaseModel):
     title: str
+    type: str | None = None
 
 
 class SubtaskCreate(SubtaskBase):
@@ -82,6 +83,7 @@ class SubtaskOut(BaseModel):
     id: int
     title: str
     status: str
+    type: str | None = None
     parent_reaction: str | None = None  # e.g., thumbs-up, star, party reaction
     position: int | None = None
     created_at: datetime
@@ -100,6 +102,7 @@ class TaskCreate(BaseModel):
     subject_id: int
     date: str | None = None  # YYYY-MM-DD; default is today
     title: str | None = None
+    hash: str | None = None
     subtasks: list[SubtaskCreate] | None = None
     child_id: int | None = None
 
@@ -110,6 +113,7 @@ class TaskOut(BaseModel):
     subject_id: int
     date: str
     title: str | None
+    hash: str
     status: str
     subtasks: list[SubtaskOut] = []
     created_at: datetime
@@ -135,3 +139,14 @@ class SubjectOut(BaseModel):
 
 class SubjectUpdate(BaseModel):
     name: str
+
+
+class HomeworkImportRequest(BaseModel):
+    child_id: Optional[int] = None
+    text: Optional[str] = None
+    file_id: Optional[str] = None  # если загружаем картинку/пдф
+
+
+class TaskResponse(BaseModel):
+    status: Literal["created", "updated", "duplicate"]
+    task: TaskOut
