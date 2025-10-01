@@ -14,9 +14,7 @@ router = APIRouter(prefix="/import", tags=["import"])
 
 
 @router.post("/homework", response_model=JobOut)
-async def import_homework(
-    text: str,
-    child_id: int | None = None,
+async def import_homework(payload: HomeworkImportRequest,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -25,6 +23,7 @@ async def import_homework(
     Возвращает job_id для отслеживания статуса.
     """
     # --- child_id по аналогии с tasks ---
+    child_id = payload.child_id
     if user.role == "child":
         child_id = user.id
     elif child_id is None:
@@ -33,8 +32,8 @@ async def import_homework(
         child_id = user.id
 
     payload = {
-        "text": text,
-        "child_id": child_id,
+        "text": payload.text,
+        "child_id": payload.child_id,
     }
 
     job_in = JobCreate(
@@ -42,5 +41,5 @@ async def import_homework(
         payload=payload,
     )
 
-    job = await create_job(db, job_in, user.id)
+    job = await create_job(job_in, db, user)
     return job

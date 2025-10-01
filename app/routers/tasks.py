@@ -154,7 +154,7 @@ async def create_task(
         if not new_titles:
             # Полный дубль: ничего не изменилось
             # existing_task уже загружен с selectinload
-            return {"status": "duplicate", "task": existing_task}
+            return TaskResponse(status="duplicate", task=TaskOut.model_validate(existing_task))
 
         # Добавляем новые подзадачи, продолжая позиции
         max_pos = max((s.position or 0) for s in existing_task.subtasks) if existing_task.subtasks else 0
@@ -186,7 +186,7 @@ async def create_task(
         # refresh not strictly necessary, but безопасно
         await db.refresh(existing_task, attribute_names=["subtasks"])
 
-        return {"status": "updated", "task": existing_task}
+        return TaskResponse(status="updated", task=TaskOut.model_validate(existing_task))
 
     # --- 3. Нет задачи с таким subject+date+title → создаём новую ---
     task_hash = make_task_hash(payload.subject_id, date_str, payload.title)
@@ -223,7 +223,7 @@ async def create_task(
                 select(Task).options(selectinload(Task.subtasks)).where(Task.id == dup.id)
             )
             dup = result.scalars().unique().one()
-            return {"status": "duplicate", "task": dup}
+            return TaskResponse(status="duplicate", task=TaskOut.model_validate(dup))
         # если тут нет dup — просто пробросим ошибку
         raise
 
@@ -240,7 +240,7 @@ async def create_task(
         await db.commit()
         await db.refresh(task, attribute_names=["subtasks"])
 
-    return {"status": "created", "task": task}
+    return TaskResponse(status="created", task=TaskOut.model_validate(task))
 
 
 @router.get("/{task_id}", response_model=TaskOut)

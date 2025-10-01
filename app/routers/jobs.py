@@ -46,6 +46,8 @@ async def create_job(
         user_id=user.id,
         type=payload.type,
         status="pending",
+        payload=payload.payload,   # 👈 если в схеме есть
+
     )
     db.add(new_job)
     await db.commit()
@@ -110,8 +112,14 @@ async def update_job_status(
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 
-    for key, value in payload.dict(exclude_unset=True).items():
-        setattr(job, key, value)
+    data = payload.dict(exclude_unset=True)
+
+    if "status" in data:
+        job.status = data["status"]
+    if "payload" in data:
+        job.payload = data["payload"]
+    if "result" in data:
+        job.result = data["result"]
 
     await db.commit()
     await db.refresh(job)

@@ -1,5 +1,7 @@
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.schemas import TaskCreate, SubtaskCreate
+from app.models import User
+from app.schemas import TaskCreate, SubtaskCreate, TaskResponse
 from app.routers.tasks import create_task, make_task_hash
 from app.routers.subjects import get_subject_id_by_name
 from app.service.agent_parser import agent_parse_homework
@@ -87,17 +89,23 @@ def detect_category(text: str, threshold: int = 80) -> str:
     return "other"
 
 
-async def process_import_homework(session: AsyncSession, job) -> dict:
+async def process_import_homework(session: AsyncSession, job) -> list[dict]:
     """
     Обработка job с типом import_homework.
     job.payload = {"text": "...", "child_id": 123}
     """
-    payload = job.payload
+    payload = job["payload"]
     raw_text = payload.get("text")
     child_id = payload.get("child_id")
 
     if not raw_text:
         raise ValueError("No homework content provided")
+
+        # достаём user из базы
+    result = await session.execute(select(User).where(User.id == job["user_id"]))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise ValueError(f"User {job['user_id']} not found")
 
     # вызов AI-агента
     ai_results = await agent_parse_homework(raw_text)
@@ -134,7 +142,7 @@ async def process_import_homework(session: AsyncSession, job) -> dict:
         )
 
         # создаём задание
-        task_status = await create_task(task_create, session, job.user)
-        results.append(task_status)
+        task_status = await create_task(task_create, session, user)
+        results.append(task_status.model_dump(mode="json"))
 
-    return {"tasks_created": len(results)}
+    return results

@@ -1,5 +1,6 @@
 from datetime import datetime
 from typing import Optional, Literal
+from enum import Enum
 
 from pydantic import BaseModel, EmailStr, Field
 
@@ -154,6 +155,14 @@ class TaskResponse(BaseModel):
 
 # Jobs
 
+class JobStatus(str, Enum):
+    PENDING = "pending"
+    RUNNING = "running"
+    DONE = "done"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
 class JobBase(BaseModel):
     type: str
     payload: Optional[dict] = None
@@ -168,7 +177,7 @@ class JobUpdate(BaseModel):
 class JobOut(JobBase):
     id: int
     user_id: int
-    status: str
+    status: JobStatus
     result: Optional[dict] = None
     created_at: datetime
     updated_at: datetime
