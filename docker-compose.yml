@@ -12,12 +12,12 @@ services:
     depends_on:
       - db
   
-    worker:
-      build: .
-      command: python -m app.worker.worker
-      depends_on:
-        - api
-      restart: always
+  worker:
+    build: .
+    command: python -m app.worker.worker
+    depends_on:
+      - api
+    restart: always
 
   db:
     image: postgres:16
