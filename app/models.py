@@ -9,6 +9,8 @@ from sqlalchemy import (
     ForeignKey,
     UniqueConstraint,
     Boolean,
+    JSON,
+    func
 )
 from sqlalchemy.orm import relationship, Mapped, mapped_column
 
@@ -32,6 +34,8 @@ class User(Base):
 
     children_links = relationship("ChildParent", back_populates="child", foreign_keys="ChildParent.child_id")
     parent_links = relationship("ChildParent", back_populates="parent", foreign_keys="ChildParent.parent_id")
+    jobs = relationship("Job", back_populates="user", cascade="all, delete-orphan")
+
 
 
 class ChildParent(Base):
@@ -116,3 +120,20 @@ class Subtask(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     task = relationship("Task", back_populates="subtasks")
+
+
+# Jobs
+
+class Job(Base):
+    __tablename__ = "jobs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    type = Column(String(50), nullable=False, index=True)
+    status = Column(String(20), nullable=False, default="pending", index=True)
+    payload = Column(JSON, nullable=True)
+    result = Column(JSON, nullable=True)
+    created_at = Column(DateTime, server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    user = relationship("User", back_populates="jobs")
