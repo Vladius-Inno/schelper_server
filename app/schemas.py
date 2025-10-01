@@ -150,3 +150,28 @@ class HomeworkImportRequest(BaseModel):
 class TaskResponse(BaseModel):
     status: Literal["created", "updated", "duplicate"]
     task: TaskOut
+
+
+# Jobs
+
+class JobBase(BaseModel):
+    type: str
+    payload: Optional[dict] = None
+
+class JobCreate(JobBase):
+    pass
+
+class JobUpdate(BaseModel):
+    status: Optional[str] = None
+    result: Optional[dict] = None
+
+class JobOut(JobBase):
+    id: int
+    user_id: int
+    status: str
+    result: Optional[dict] = None
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        orm_mode = True
