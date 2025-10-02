@@ -57,7 +57,7 @@ async def create_job(
 
 @router.get("/{job_id}", response_model=JobOut)
 async def get_job(
-    job_id: str,
+    job_id: int,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -71,7 +71,7 @@ async def get_job(
 
 @router.delete("/{job_id}", response_model=JobOut)
 async def delete_job(
-    job_id: str,
+    job_id: int,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -101,7 +101,7 @@ def verify_worker(x_api_key: str = Header(...)):
 
 @internal_router.patch("/{job_id}", response_model=JobOut)
 async def update_job_status(
-    job_id: str,
+    job_id: int,
     payload: JobUpdate,
     db: AsyncSession = Depends(get_db),
     _: bool = Depends(verify_worker),  # 👈 проверка API-ключа
