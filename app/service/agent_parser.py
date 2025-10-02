@@ -80,7 +80,7 @@ async def agent_parse_homework(raw_text: str) -> dict:
                                 },
                                 "detail": {
                                     "type": "string",
-                                    "description": "Описание подзадачи (что именно нужно сделать)"
+                                    "description": "Описание подзадачи (что именно нужно сделать, исходя из текста)"
                                 }
                                 },
                                 "required": ["type", "detail"]
