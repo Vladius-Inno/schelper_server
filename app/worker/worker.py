@@ -72,7 +72,7 @@ async def _process_job(session: AsyncSession, job: Job):
         result = await handler(session, job)
 
         # update → DONE
-        await _update_status(session, job, JobStatus.DONE.value, {"result": result})
+        await _update_status(session, job, JobStatus.DONE.value, result)
 
         logger.info(f"Job {job["id"]} completed")
 

@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional, Literal
+from typing import Optional, Literal, Any
 from enum import Enum
 
 from pydantic import BaseModel, EmailStr, Field
@@ -172,13 +172,15 @@ class JobCreate(JobBase):
 
 class JobUpdate(BaseModel):
     status: Optional[str] = None
-    result: Optional[dict] = None
+    # result may be a list (e.g., import results) or a dict
+    result: Optional[Any] = None
 
 class JobOut(JobBase):
     id: int
     user_id: int
     status: JobStatus
-    result: Optional[dict] = None
+    # result may be a list (e.g., import results) or a dict
+    result: Optional[Any] = None
     created_at: datetime
     updated_at: datetime
 
